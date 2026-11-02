@@ -1,0 +1,184 @@
+"""Pydantic models for the input product and the generated card."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# Placeholder that must be used whenever a fact is not present in the input.
+MISSING_MARK = "данных нет"
+
+TITLE_MAX = 70
+DESCRIPTION_MIN = 800
+DESCRIPTION_MAX = 1200
+QUERIES_MIN = 3
+QUERIES_MAX = 5
+COMMERCIAL_MIN = 300
+COMMERCIAL_MAX = 700
+
+
+class MissingField(BaseModel):
+    """A field the content manager has to fill in or confirm."""
+
+    field: str = Field(description="Путь к полю, например specs.класс точности")
+    reason: str = Field(description="Почему поле требует внимания")
+
+
+class ProductIn(BaseModel):
+    """Input product sent by the caller (JSON body or web form)."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    name: str = Field(min_length=1, max_length=200, examples=["Манометр показывающий DM 02"])
+    manufacturer: str = Field(min_length=1, max_length=200, examples=["Манотомь"])
+    specs: dict[str, str] = Field(
+        default_factory=dict,
+        description="Характеристики прибора: название → значение",
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=20_000,
+        description="Текстовое описание или фрагмент технического паспорта",
+    )
+
+    @field_validator("name", "manufacturer")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("поле не может быть пустым")
+        return value.strip()
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _clean_description(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("описание должно быть строкой")
+        value = value.strip()
+        return value or None
+
+    @field_validator("specs", mode="before")
+    @classmethod
+    def _normalize_specs(cls, value: Any) -> dict[str, str]:
+        """Accept scalar values, drop blank keys and keep blanks as missing facts."""
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("specs должен быть объектом «название → значение»")
+
+        normalized: dict[str, str] = {}
+        for raw_key, raw_value in value.items():
+            key = str(raw_key).strip()
+            if not key:
+                continue
+            if raw_value is None:
+                normalized[key] = ""
+            elif isinstance(raw_value, bool):
+                normalized[key] = "да" if raw_value else "нет"
+            elif isinstance(raw_value, (int, float)):
+                normalized[key] = str(raw_value).replace(".", ",")
+            elif isinstance(raw_value, str):
+                normalized[key] = raw_value.strip()
+            else:
+                raise ValueError(f"значение характеристики «{key}» должно быть строкой или числом")
+        return normalized
+
+    @property
+    def filled_specs(self) -> dict[str, str]:
+        return {key: value for key, value in self.specs.items() if value}
+
+    def missing_fields(self) -> list[MissingField]:
+        """Deterministically list everything the input lacks.
+
+        The LLM is never asked to report this: coverage is computed in code so
+        it cannot be forgotten or hallucinated.
+        """
+        missing: list[MissingField] = []
+
+        if not self.specs:
+            missing.append(
+                MissingField(
+                    field="specs",
+                    reason="характеристики не переданы — карточка будет содержать "
+                    "только общие сведения",
+                )
+            )
+        for key, value in self.specs.items():
+            if not value:
+                missing.append(
+                    MissingField(
+                        field=f"specs.{key}",
+                        reason="значение не заполнено во входных данных",
+                    )
+                )
+
+        if not self.description:
+            missing.append(
+                MissingField(
+                    field="description",
+                    reason="текстовое описание не передано — SEO-описание "
+                    "сформировано только по характеристикам",
+                )
+            )
+
+        return missing
+
+    def has_enough_facts(self) -> bool:
+        """At least one real fact besides the name and the manufacturer."""
+        return bool(self.filled_specs or self.description)
+
+
+class SpecItem(BaseModel):
+    """One key characteristic in the generated card."""
+
+    name: str = Field(min_length=1)
+    value: str = Field(min_length=1)
+    source_field: str | None = Field(
+        default=None,
+        description="Точное название характеристики во входных данных",
+    )
+
+
+class ProductCard(BaseModel):
+    """Structured draft returned by the model.
+
+    ``missing_data`` is intentionally absent: coverage is computed by the
+    service, not generated by the model.
+    """
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    seo_title: str = Field(min_length=1)
+    seo_description: str = Field(min_length=1)
+    key_specs: list[SpecItem] = Field(default_factory=list)
+    search_queries: list[str] = Field(default_factory=list)
+    commercial_block: str = Field(min_length=1)
+    notes: list[str] = Field(default_factory=list)
+
+    @field_validator("search_queries")
+    @classmethod
+    def _clean_queries(cls, value: list[str]) -> list[str]:
+        return [item.strip() for item in value if item and item.strip()]
+
+
+class GenerationMeta(BaseModel):
+    """Technical information about one generation run."""
+
+    provider: str
+    model: str
+    attempts: int = Field(ge=1, description="Сколько раз вызывалась модель")
+    duration_ms: int = Field(ge=0)
+    warnings: list[str] = Field(default_factory=list)
+    generated_at: str
+
+
+class CardResult(BaseModel):
+    """Full API response: draft, coverage report, metadata and Markdown."""
+
+    product: ProductIn
+    card: ProductCard
+    missing_data: list[MissingField]
+    markdown: str
+    meta: GenerationMeta

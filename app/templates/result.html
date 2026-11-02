@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ result.product.name }} · черновик карточки</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar__inner">
+      <div class="brand">
+        <span class="brand__mark">AI</span>
+        <div>
+          <div class="brand__title">Карточки товаров</div>
+          <div class="brand__subtitle">B2B · контрольно-измерительные приборы</div>
+        </div>
+      </div>
+      <a class="back-link" href="/">← Новый товар</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="result-head">
+      <div>
+        <span class="eyebrow">Черновик карточки</span>
+        <h1>{{ result.product.name }}</h1>
+        <p class="muted">{{ result.product.manufacturer }}</p>
+      </div>
+      <div class="meta-chips">
+        <span class="chip chip--static">{{ result.meta.provider }} · {{ result.meta.model }}</span>
+        {% set attempts = result.meta.attempts %}
+        <span class="chip chip--static">
+          {{ attempts }}
+          {%- if attempts % 10 == 1 and attempts % 100 != 11 %} вызов
+          {%- elif attempts % 10 in [2, 3, 4] and attempts % 100 not in [12, 13, 14] %} вызова
+          {%- else %} вызовов{% endif %} модели
+        </span>
+        <span class="chip chip--static">{{ result.meta.duration_ms }} мс</span>
+      </div>
+    </div>
+
+    {% if result.missing_data %}
+    <div class="notice notice--warning">
+      <strong>Требуют уточнения ({{ result.missing_data|length }}):</strong>
+      <ul>
+        {% for item in result.missing_data %}
+        <li><code>{{ item.field }}</code> — {{ item.reason }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% if result.meta.warnings %}
+    <div class="notice notice--warning">
+      <strong>Замечания пост-проверки:</strong>
+      <ul>
+        {% for warning in result.meta.warnings %}
+        <li>{{ warning }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <div class="result-grid">
+      <section class="panel">
+        <h2>
+          SEO-заголовок
+          <span class="counter {% if result.card.seo_title|length <= 70 %}counter--ok{% endif %}">
+            {{ result.card.seo_title|length }}/70
+          </span>
+        </h2>
+        <p class="seo-title">{{ result.card.seo_title }}</p>
+
+        <h2>
+          SEO-описание
+          <span class="counter {% if 800 <= result.card.seo_description|length <= 1200 %}counter--ok{% endif %}">
+            {{ result.card.seo_description|length }} / 800–1200
+          </span>
+        </h2>
+        <div class="seo-description">{{ result.card.seo_description }}</div>
+
+        <h2>Ключевые характеристики</h2>
+        <table class="specs">
+          <thead>
+            <tr><th>Характеристика</th><th>Значение</th></tr>
+          </thead>
+          <tbody>
+            {% for spec in result.card.key_specs %}
+            <tr>
+              <td>{{ spec.name }}</td>
+              <td {% if spec.value == 'данных нет' %}class="missing-value"{% endif %}>{{ spec.value }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        <h2>Поисковые запросы</h2>
+        <div class="chips">
+          {% for query in result.card.search_queries %}
+          <span class="chip chip--query">{{ query }}</span>
+          {% endfor %}
+        </div>
+
+        <h2>Кому подходит</h2>
+        <div class="seo-description">{{ result.card.commercial_block }}</div>
+
+        {% if result.card.notes %}
+        <h2>Замечания модели</h2>
+        <ul class="muted">
+          {% for note in result.card.notes %}
+          <li>{{ note }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </section>
+
+      <aside class="aside">
+        <section class="panel">
+          <div class="hint-row">
+            <h2 style="margin:0;">Markdown для копирования</h2>
+            <button class="button button--ghost button--small" type="button" data-copy="markdown">
+              Скопировать
+            </button>
+          </div>
+          <pre id="markdown" class="markdown">{{ result.markdown }}</pre>
+
+          <details>
+            <summary>Показать JSON ответа API</summary>
+            <pre id="json" class="markdown">{{ result.model_dump_json(indent=2) }}</pre>
+            <button class="button button--ghost button--small" type="button" data-copy="json">
+              Скопировать JSON
+            </button>
+          </details>
+        </section>
+      </aside>
+    </div>
+
+    <div class="actions">
+      <a class="button button--ghost" href="/">← Новый товар</a>
+      <button class="button" type="button" onclick="window.print()">Печать / PDF</button>
+    </div>
+
+    <p class="disclaimer">
+      Сгенерировано {{ result.meta.generated_at }}. Перед публикацией проверьте
+      карточку: сервис отмечает отсутствующие данные, но не заменяет редактора.
+    </p>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      AI-помощник для подготовки товарных описаний · прототип для тестового задания
+    </div>
+  </footer>
+
+  <script>
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (error) {
+        const helper = document.createElement("textarea");
+        helper.value = text;
+        helper.style.position = "fixed";
+        helper.style.opacity = "0";
+        document.body.appendChild(helper);
+        helper.select();
+        const copied = document.execCommand("copy");
+        document.body.removeChild(helper);
+        return copied;
+      }
+    }
+
+    document.querySelectorAll("[data-copy]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const target = document.getElementById(button.dataset.copy);
+        if (!target) return;
+        const label = button.textContent;
+        const copied = await copyText(target.innerText);
+        button.textContent = copied ? "Скопировано" : "Не удалось";
+        setTimeout(() => {
+          button.textContent = label;
+        }, 1600);
+      });
+    });
+  </script>
+</body>
+</html>

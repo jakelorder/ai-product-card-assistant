@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI-помощник · Карточки товаров</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar__inner">
+      <div class="brand">
+        <span class="brand__mark">AI</span>
+        <div>
+          <div class="brand__title">Карточки товаров</div>
+          <div class="brand__subtitle">B2B · контрольно-измерительные приборы</div>
+        </div>
+      </div>
+      <div class="provider {% if provider == 'mock' %}provider--mock{% endif %}">
+        <span class="dot"></span>{{ provider }} · {{ model }}
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    {% if provider == 'mock' %}
+    <div class="notice notice--info">
+      <strong>Демо-режим.</strong> Активен провайдер <code>mock</code>: карточка
+      собирается детерминированно, без вызова LLM. Для реальной генерации задайте
+      <code>LLM_PROVIDER</code> и <code>LLM_API_KEY</code> в <code>.env</code>.
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="notice notice--error">
+      <strong>Не удалось сформировать карточку.</strong><br>{{ error }}
+    </div>
+    {% endif %}
+
+    <section class="panel">
+      <div class="panel__head">
+        <div>
+          <span class="eyebrow">Новый черновик</span>
+          <h1 class="page-title">Карточка товара за один запрос</h1>
+          <p class="muted">
+            Вставьте JSON прибора — сервис соберёт SEO-заголовок, описание,
+            характеристики, поисковые запросы и блок для менеджера. Все факты
+            сверяются с входными данными.
+          </p>
+        </div>
+        <div class="examples">
+          {% for example in examples %}
+          <button type="button" class="chip" data-example="{{ loop.index0 }}">
+            {{ example.name }}
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+
+      <form method="post" action="/generate">
+        <label class="label" for="payload">Входные данные (JSON)</label>
+        <textarea id="payload" name="payload" spellcheck="false" required>{{ payload }}</textarea>
+        <div class="form__foot">
+          <span class="hint">
+            Обязательные поля: <code>name</code>, <code>manufacturer</code>.
+            Характеристики — <code>specs</code>, описание — <code>description</code>.
+          </span>
+          <button class="button" type="submit">Сформировать карточку</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel panel--muted">
+      <h2>Что попадёт в результат</h2>
+      <div class="grid grid--4">
+        <div class="feature">
+          <strong>SEO-заголовок</strong>
+          <span>До 70 символов, с названием и производителем.</span>
+        </div>
+        <div class="feature">
+          <strong>SEO-описание</strong>
+          <span>800–1200 символов только по переданным фактам.</span>
+        </div>
+        <div class="feature">
+          <strong>Характеристики</strong>
+          <span>Таблица с проверкой каждого значения по входу.</span>
+        </div>
+        <div class="feature">
+          <strong>Поисковые запросы</strong>
+          <span>3–5 запросов и commercial-блок для менеджера.</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel panel--muted">
+      <h2>API</h2>
+      <p class="muted" style="margin-bottom:12px;">
+        Тот же результат доступен программно:
+      </p>
+      <pre class="markdown" style="max-height:none;">curl -X POST http://localhost:8000/api/generate \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Манометр DM 02","manufacturer":"Манотомь","specs":{"диапазон измерений":"0–1,6 МПа"},"description":null}'</pre>
+      <p class="disclaimer">
+        <code>POST /api/generate</code> — JSON с карточкой, отчётом о недостающих
+        полях и Markdown. <code>POST /api/generate/markdown</code> — только
+        Markdown. <code>GET /health</code> — статус и активный провайдер.
+      </p>
+    </section>
+
+    <div class="disclaimer">
+      Прототип. Перед публикацией карточку проверяет ответственный менеджер.
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      AI-помощник для подготовки товарных описаний · прототип для тестового задания
+    </div>
+  </footer>
+
+  <script>
+    const examples = {{ examples|tojson }};
+    const textarea = document.getElementById("payload");
+
+    document.querySelectorAll("[data-example]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const example = examples[Number(button.dataset.example)];
+        textarea.value = example.payload;
+        textarea.focus();
+        textarea.scrollTop = 0;
+      });
+    });
+  </script>
+</body>
+</html>
